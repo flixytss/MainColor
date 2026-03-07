@@ -7,8 +7,8 @@
     "compilers-filter": {
         ".c": "clang"
     },
-    "run-before": ["@echo Causa-san"],
-    "link-args": ["-lpng", "-lm"],
+    "run-before": [],
+    "link-args": ["-lpng", "-lm", "-lturbojpeg"],
     "compile-args": {},
     "includes": {
         "clang": "include"

@@ -5,9 +5,7 @@
 #include <time.h> // png.h requires it
 #include <png.h>
 #include <stdlib.h>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include <turbojpeg.h>
 
 struct pixel {
    unsigned char r;
@@ -44,7 +42,7 @@ struct pixel get_pixel_png(int x, int y, png_bytep row_ptrs[]) {
     return (struct pixel){ pixel[0], pixel[1], pixel[2] };
 }
 struct pixel get_pixel_jpg(int x, int y, int width, unsigned char pixels[]) {
-    unsigned char* pixel = pixels + (3 * (width * y + x));
+    unsigned char* pixel = pixels + (y * width + x) * 3;
 
     return (struct pixel){ pixel[0], pixel[1], pixel[2] };
 }
@@ -153,24 +151,42 @@ int print_png_color(const char* file) {
     return 0;
 }
 int print_jpeg_color(const char* file) {
-    int width, height, channels;
-
-    unsigned char* image = stbi_load(file, &width, &height, &channels, 3);
-    if (!image) {
+    FILE* infile = fopen(file, "rb");
+    if (!infile) {
         fprintf(stderr, "failed when creating unsigned char* (file %s dosen't exists)!\n", file);
         return 1;
     }
+    fseek(infile, 0, SEEK_END);
+    long jpegSize = ftell(infile);
+    fseek(infile, 0, SEEK_SET);
 
-    long total_pixels = width * height;
+    unsigned char *jpegBuf = malloc(jpegSize);
+    fread(jpegBuf, 1, jpegSize, infile);
+    fclose(infile);
 
-    unsigned char* pixel_r = (unsigned char*)malloc(total_pixels * sizeof(unsigned char));
-    unsigned char* pixel_g = (unsigned char*)malloc(total_pixels * sizeof(unsigned char));
-    unsigned char* pixel_b = (unsigned char*)malloc(total_pixels * sizeof(unsigned char));
+    tjhandle tj = tjInitDecompress();
+
+    int width, height, subsamp, colorspace;
+    tjDecompressHeader3(tj, jpegBuf, jpegSize,
+                        &width, &height, &subsamp, &colorspace);
+
+    int pixelFormat = TJPF_RGB;
+    int pitch = width * tjPixelSize[pixelFormat];
+
+    unsigned char *imgBuf = malloc(width * height * tjPixelSize[pixelFormat]);
+
+    tjDecompress2(tj, jpegBuf, jpegSize,
+                  imgBuf, width, pitch, height,
+                  pixelFormat, TJFLAG_FASTDCT);
+
+    unsigned char* pixel_r = (unsigned char*)malloc((height * width) * sizeof(unsigned char));
+    unsigned char* pixel_g = (unsigned char*)malloc((height * width) * sizeof(unsigned char));
+    unsigned char* pixel_b = (unsigned char*)malloc((height * width) * sizeof(unsigned char));
 
     int i = 0;
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            struct pixel p = get_pixel_jpg(x, y, width, image);
+            struct pixel p = get_pixel_jpg(x, y, width, imgBuf);
             
             pixel_r[i] = p.r;
             pixel_g[i] = p.g;
@@ -180,12 +196,14 @@ int print_jpeg_color(const char* file) {
         }
     }
 
-    printf("%d %d %d\n", get_average(pixel_r, total_pixels), get_average(pixel_g, total_pixels), get_average(pixel_b, total_pixels));
+    printf("%d %d %d\n", get_average(pixel_r, (height * width)), get_average(pixel_g, (height * width)), get_average(pixel_b, (height * width)));
 
-    stbi_image_free(image);
+    free(imgBuf);
+    free(jpegBuf);
     free(pixel_r);
     free(pixel_g);
     free(pixel_b);
-
+    tjDestroy(tj);
+    
     return 0;
 }
